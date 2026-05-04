@@ -460,14 +460,15 @@ local COMMANDS = {
     {name = "goto",  args = "<x> <y> <z>", desc = "Teleportiere zu Koordinaten",    cat = "Movement"},
     {name = "respawn",args="",             desc = "Respawne dich",                  cat = "Movement"},
     -- PLAYER
-    {name = "kill",  args = "<player/me>",  desc = "Töte einen Spieler",             cat = "Player"},
+    {name = "explode",args = "<player/me/all>",desc = "Spieler explodieren lassen 💥", cat = "Player"},
+    {name = "kill",  args = "<player/me/all>",desc = "Töte einen/alle Spieler",        cat = "Player"},
     {name = "god",   args = "",             desc = "God Mode an/aus",                cat = "Player"},
-    {name = "heal",  args = "<player/me>",  desc = "Heile einen Spieler",            cat = "Player"},
-    {name = "freeze",args = "<player/me>",  desc = "Einfrieren an/aus",              cat = "Player"},
+    {name = "heal",  args = "<player/me/all>",desc = "Heile einen/alle Spieler",     cat = "Player"},
+    {name = "freeze",args = "<player/me/all>",desc = "Einfrieren an/aus",            cat = "Player"},
     {name = "sit",   args = "",             desc = "Lass dich hinsetzen",            cat = "Player"},
-    {name = "invisible",args = "",          desc = "Unsichtbarkeit an/aus",          cat = "Player"},
+    {name = "invisible",args = "<player/me/all>",desc = "Unsichtbarkeit an/aus",     cat = "Player"},
     {name = "char",  args = "<player>",     desc = "Kopiere Charakter",              cat = "Player"},
-    {name = "size",  args = "<value>",      desc = "Ändere Charaktergröße",         cat = "Player"},
+    {name = "size",  args = "<value> <player/me/all>",desc = "Charaktergröße ändern",cat = "Player"},
     {name = "team",  args = "<team>",       desc = "Wechsle Team",                   cat = "Player"},
     -- VISUALS
     {name = "esp",      args = "",          desc = "ESP (Spieler durch Wände)",      cat = "Visuals"},
@@ -583,35 +584,120 @@ local function ExecuteCommand(input)
         LocalPlayer:LoadCharacter()
         Notify("Respawned")
 
-    elseif cmd == "kill" then
-        local target = FindPlayer(args[1] or "me")
-        if target then
-            local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum.Health = 0 end
-            Notify("Getötet: " .. (type(target) == "table" and "Alle" or target.Name), CONFIG.AdminColor)
+    elseif cmd == "explode" then
+        local targets = {}
+        local targetArg = args[1] or "me"
+        if targetArg == "all" then
+            for _, p in ipairs(Players:GetPlayers()) do table.insert(targets, p) end
+        else
+            local t = FindPlayer(targetArg)
+            if t then table.insert(targets, t) end
         end
+
+        if #targets == 0 then
+            Notify("Spieler nicht gefunden: " .. targetArg, CONFIG.AdminColor)
+        end
+
+        for _, target in ipairs(targets) do
+            local tChar = target.Character
+            local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+            if tRoot then
+                local pos = tRoot.Position
+
+                -- Roblox Explosion Instance
+                local explosion = Instance.new("Explosion")
+                explosion.Position = pos
+                explosion.BlastRadius = 12
+                explosion.BlastPressure = 400000
+                explosion.ExplosionType = Enum.ExplosionType.NoCraters
+                explosion.DestroyJointRadiusPercent = 0
+                explosion.Parent = Workspace
+
+                -- Feuer + Rauch am Spieler
+                local part = Instance.new("Part")
+                part.Size = Vector3.new(1,1,1)
+                part.Position = pos
+                part.Anchored = true
+                part.CanCollide = false
+                part.Transparency = 1
+                part.Parent = Workspace
+
+                local fire = Instance.new("Fire")
+                fire.Size = 18
+                fire.Heat = 30
+                fire.Color = Color3.fromRGB(255, 100, 0)
+                fire.SecondaryColor = Color3.fromRGB(255, 50, 0)
+                fire.Parent = part
+
+                local smoke = Instance.new("Smoke")
+                smoke.RiseVelocity = 10
+                smoke.Size = 6
+                smoke.Opacity = 0.9
+                smoke.Parent = part
+
+                -- Kamera Shake nur wenn eigener Char
+                if target == LocalPlayer then
+                    local shakeTime = 0
+                    local shakeConn
+                    shakeConn = RunService.RenderStepped:Connect(function(dt)
+                        shakeTime = shakeTime + dt
+                        if shakeTime > 0.7 then shakeConn:Disconnect() return end
+                        local intensity = (0.7 - shakeTime) * 4
+                        Camera.CFrame = Camera.CFrame * CFrame.Angles(
+                            math.rad((math.random()-0.5) * intensity * 2),
+                            math.rad((math.random()-0.5) * intensity * 2),
+                            0
+                        )
+                    end)
+                end
+
+                task.delay(4, function()
+                    if part and part.Parent then part:Destroy() end
+                end)
+
+                Notify("💥 " .. target.Name .. " KABOOM!", Color3.fromRGB(255, 120, 0))
+            else
+                Notify(target.Name .. " hat keinen Charakter", CONFIG.AdminColor)
+            end
+        end
+
+    elseif cmd == "kill" then
+        local targetArg = args[1] or "me"
+        local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
+        for _, target in ipairs(targets) do
+            if target then
+                local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Health = 0 end
+            end
+        end
+        Notify("Getötet: " .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?")), CONFIG.AdminColor)
 
     elseif cmd == "god" then
         ToggleGodMode()
 
     elseif cmd == "heal" then
-        local target = FindPlayer(args[1] or "me")
-        if target and target.Character then
-            local hum = target.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum.Health = hum.MaxHealth end
-            Notify("Geheilt: " .. target.Name)
-        end
-
-    elseif cmd == "freeze" then
-        State.Frozen = not State.Frozen
-        local target = FindPlayer(args[1] or "me")
-        if target and target.Character then
-            local root = target.Character:FindFirstChild("HumanoidRootPart")
-            if root then
-                root.Anchored = State.Frozen
-                Notify(State.Frozen and "Eingefroren" or "Entfroren")
+        local targetArg = args[1] or "me"
+        local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
+        for _, target in ipairs(targets) do
+            if target and target.Character then
+                local hum = target.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.Health = hum.MaxHealth end
             end
         end
+        Notify("Geheilt: " .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?")))
+
+    elseif cmd == "freeze" then
+        local targetArg = args[1] or "me"
+        local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
+        State.Frozen = not State.Frozen
+        for _, target in ipairs(targets) do
+            if target and target.Character then
+                local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+                if tRoot then tRoot.Anchored = State.Frozen end
+            end
+        end
+        Notify(State.Frozen and "Eingefroren: " .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?"))
+                             or "Entfroren: "   .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?")))
 
     elseif cmd == "sit" then
         local hum = GetHumanoid()
@@ -619,25 +705,31 @@ local function ExecuteCommand(input)
         Notify("Hingesetzt")
 
     elseif cmd == "invisible" then
+        local targetArg = args[1] or "me"
+        local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
         State.Invisible = not State.Invisible
-        local char = GetCharacter()
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") or part:IsA("Decal") then
-                    part.Transparency = State.Invisible and 1 or 0
+        for _, target in ipairs(targets) do
+            if target and target.Character then
+                for _, part in ipairs(target.Character:GetDescendants()) do
+                    if part:IsA("BasePart") or part:IsA("Decal") then
+                        part.Transparency = State.Invisible and 1 or 0
+                    end
                 end
             end
         end
-        Notify(State.Invisible and "Unsichtbar" or "Sichtbar")
+        Notify((State.Invisible and "Unsichtbar" or "Sichtbar") .. ": " .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?")))
 
     elseif cmd == "size" then
         local val = tonumber(args[1]) or 1
+        local targetArg = args[2] or "me"
         val = math.clamp(val, 0.1, 10)
-        local char = GetCharacter()
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.Size = part.Size * val
+        local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
+        for _, target in ipairs(targets) do
+            if target and target.Character then
+                for _, part in ipairs(target.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Size = part.Size * val
+                    end
                 end
             end
         end
@@ -1578,6 +1670,7 @@ local function CreateGUI()
     quickLabel.Parent = cmdBarPage
 
     local quickCmds = {
+        {"💥 EXPLODE!",  "explode",    Color3.fromRGB(200,70,0)},
         {"⚡ Speed x5",  "speed 80",   Color3.fromRGB(40,80,140)},
         {"🛡 God ON",    "god",         CONFIG.GreenColor},
         {"👁 ESP ON",    "esp",         Color3.fromRGB(180,40,40)},
