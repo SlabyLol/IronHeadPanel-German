@@ -450,8 +450,8 @@ end
 
 local COMMANDS = {
     -- MOVEMENT
-    {name = "speed", args = "<value>",      desc = "Setzt deine Walkspeed",          cat = "Movement"},
-    {name = "jump",  args = "<value>",      desc = "Setzt deine JumpPower",          cat = "Movement"},
+    {name = "speed", args = "<value> [player/me/all]", desc = "Setzt WalkSpeed eines Spielers", cat = "Movement"},
+    {name = "jump",  args = "<value> [player/me/all]", desc = "Setzt JumpPower eines Spielers",  cat = "Movement"},
     {name = "fly",   args = "",             desc = "Fliegen an/aus",                 cat = "Movement"},
     {name = "noclip",args = "",             desc = "Noclip an/aus",                  cat = "Movement"},
     {name = "tp",    args = "<player>",     desc = "Teleportiere zu Spieler",        cat = "Movement"},
@@ -461,7 +461,8 @@ local COMMANDS = {
     {name = "respawn",args="",             desc = "Respawne dich",                  cat = "Movement"},
     -- PLAYER
     {name = "explode",args = "<player/me/all>",desc = "Spieler explodieren lassen 💥", cat = "Player"},
-    {name = "kill",  args = "<player/me/all>",desc = "Töte einen/alle Spieler",        cat = "Player"},
+    {name = "kill",       args = "<player/me/all>",            desc = "Töte einen/alle Spieler",        cat = "Player"},
+    {name = "repeatkill", args = "<player/me/all> <true/false>",desc = "Loop-Kill an/aus",               cat = "Player"},
     {name = "god",   args = "",             desc = "God Mode an/aus",                cat = "Player"},
     {name = "heal",  args = "<player/me/all>",desc = "Heile einen/alle Spieler",     cat = "Player"},
     {name = "freeze",args = "<player/me/all>",desc = "Einfrieren an/aus",            cat = "Player"},
@@ -522,20 +523,34 @@ local function ExecuteCommand(input)
     -- ══ COMMANDS ══
 
     if cmd == "speed" then
+        -- /speed <value> [player/me/all]
         local val = tonumber(args[1]) or 16
         val = math.clamp(val, 0, 500)
-        local hum = GetHumanoid()
-        if hum then hum.WalkSpeed = val end
-        State.WalkSpeedVal = val
-        Notify("WalkSpeed: " .. val)
+        local targetArg = args[2] or "me"
+        local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
+        for _, target in ipairs(targets) do
+            if target and target.Character then
+                local hum = target.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.WalkSpeed = val end
+            end
+        end
+        if targetArg == "me" then State.WalkSpeedVal = val end
+        Notify("WalkSpeed " .. val .. " → " .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?")))
 
     elseif cmd == "jump" then
+        -- /jump <value> [player/me/all]
         local val = tonumber(args[1]) or 50
         val = math.clamp(val, 0, 500)
-        local hum = GetHumanoid()
-        if hum then hum.JumpPower = val end
-        State.JumpPowerVal = val
-        Notify("JumpPower: " .. val)
+        local targetArg = args[2] or "me"
+        local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
+        for _, target in ipairs(targets) do
+            if target and target.Character then
+                local hum = target.Character:FindFirstChildOfClass("Humanoid")
+                if hum then hum.JumpPower = val end
+            end
+        end
+        if targetArg == "me" then State.JumpPowerVal = val end
+        Notify("JumpPower " .. val .. " → " .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?")))
 
     elseif cmd == "fly" then
         ToggleFly()
@@ -671,6 +686,47 @@ local function ExecuteCommand(input)
             end
         end
         Notify("Getötet: " .. (targetArg == "all" and "Alle" or (targets[1] and targets[1].Name or "?")), CONFIG.AdminColor)
+
+    elseif cmd == "repeatkill" or cmd == "loopkill" then
+        -- /repeatkill <player/me/all> <true/false>
+        local targetArg = args[1] or "me"
+        local toggle = (args[2] or "true"):lower()
+        local enable = toggle ~= "false" and toggle ~= "off" and toggle ~= "0"
+
+        if not State.RepeatKillConnections then
+            State.RepeatKillConnections = {}
+        end
+
+        -- Stoppe bestehende Loops für diesen Spieler
+        if State.RepeatKillConnections[targetArg] then
+            State.RepeatKillConnections[targetArg] = false
+            if not enable then
+                Notify("RepeatKill gestoppt: " .. targetArg, CONFIG.SubText)
+                return
+            end
+        end
+
+        if enable then
+            State.RepeatKillConnections[targetArg] = true
+            Notify("🔁 RepeatKill AN: " .. targetArg, CONFIG.AdminColor)
+
+            task.spawn(function()
+                while State.RepeatKillConnections and State.RepeatKillConnections[targetArg] do
+                    local targets = targetArg == "all" and Players:GetPlayers() or {FindPlayer(targetArg)}
+                    for _, target in ipairs(targets) do
+                        if target and target.Character then
+                            local hum = target.Character:FindFirstChildOfClass("Humanoid")
+                            if hum and hum.Health > 0 then
+                                hum.Health = 0
+                            end
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end)
+        else
+            Notify("RepeatKill gestoppt: " .. targetArg, CONFIG.SubText)
+        end
 
     elseif cmd == "god" then
         ToggleGodMode()
@@ -1043,6 +1099,94 @@ local function CreateGUI()
     MinBtn.BorderSizePixel = 0
     MinBtn.Parent = TitleBar
     Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+    -- ╔══════════════════════════════════╗
+    -- ║      IHP ICON (rechts oben)      ║
+    -- ╚══════════════════════════════════╝
+    local LogoFrame = Instance.new("Frame")
+    LogoFrame.Name = "IHP_Logo"
+    LogoFrame.Size = UDim2.new(0, 100, 0, 100)
+    LogoFrame.Position = UDim2.new(1, -118, 0, -28)
+    LogoFrame.BackgroundTransparency = 1
+    LogoFrame.ZIndex = 10
+    LogoFrame.ClipsDescendants = false
+    LogoFrame.Parent = MainFrame
+
+    -- Glow-Ring außen
+    local glowRing = Instance.new("Frame")
+    glowRing.Size = UDim2.new(1, 0, 1, 0)
+    glowRing.BackgroundColor3 = CONFIG.AdminColor
+    glowRing.BackgroundTransparency = 0.65
+    glowRing.BorderSizePixel = 0
+    glowRing.ZIndex = 10
+    glowRing.Parent = LogoFrame
+    Instance.new("UICorner", glowRing).CornerRadius = UDim.new(0.5, 0)
+
+    -- Roter Rand-Kreis
+    local borderCircle = Instance.new("Frame")
+    borderCircle.Size = UDim2.new(0, 88, 0, 88)
+    borderCircle.Position = UDim2.new(0.5, -44, 0.5, -44)
+    borderCircle.BackgroundColor3 = CONFIG.AdminColor
+    borderCircle.BorderSizePixel = 0
+    borderCircle.ZIndex = 11
+    borderCircle.Parent = LogoFrame
+    Instance.new("UICorner", borderCircle).CornerRadius = UDim.new(0.5, 0)
+
+    -- Dunkler Innenkreis
+    local innerCircle = Instance.new("Frame")
+    innerCircle.Size = UDim2.new(0, 74, 0, 74)
+    innerCircle.Position = UDim2.new(0.5, -37, 0.5, -37)
+    innerCircle.BackgroundColor3 = CONFIG.BgDark
+    innerCircle.BorderSizePixel = 0
+    innerCircle.ZIndex = 12
+    innerCircle.Parent = LogoFrame
+    Instance.new("UICorner", innerCircle).CornerRadius = UDim.new(0.5, 0)
+
+    local innerGrad = Instance.new("UIGradient")
+    innerGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(28, 8, 8)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 8, 18)),
+    })
+    innerGrad.Rotation = 135
+    innerGrad.Parent = innerCircle
+
+    -- "IHP" Text
+    local logoText = Instance.new("TextLabel")
+    logoText.Size = UDim2.new(0, 68, 0, 36)
+    logoText.Position = UDim2.new(0.5, -34, 0.5, -22)
+    logoText.BackgroundTransparency = 1
+    logoText.Text = "IHP"
+    logoText.TextColor3 = CONFIG.AdminColor
+    logoText.Font = Enum.Font.GothamBlack
+    logoText.TextSize = 28
+    logoText.ZIndex = 13
+    logoText.Parent = LogoFrame
+
+    -- "PANEL" Subtext
+    local logoSub = Instance.new("TextLabel")
+    logoSub.Size = UDim2.new(0, 68, 0, 16)
+    logoSub.Position = UDim2.new(0.5, -34, 0.5, 14)
+    logoSub.BackgroundTransparency = 1
+    logoSub.Text = "PANEL"
+    logoSub.TextColor3 = Color3.fromRGB(180, 180, 210)
+    logoSub.Font = Enum.Font.GothamBold
+    logoSub.TextSize = 9
+    logoSub.ZIndex = 13
+    logoSub.Parent = LogoFrame
+
+    -- Pulsier-Animation
+    task.spawn(function()
+        while LogoFrame and LogoFrame.Parent do
+            TweenService:Create(glowRing, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                BackgroundTransparency = 0.4
+            }):Play()
+            task.wait(1.2)
+            TweenService:Create(glowRing, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                BackgroundTransparency = 0.78
+            }):Play()
+            task.wait(1.2)
+        end
+    end)
 
     -- Drag-Funktionalität
     local dragging, dragStart, startPos
@@ -1670,6 +1814,7 @@ local function CreateGUI()
     quickLabel.Parent = cmdBarPage
 
     local quickCmds = {
+        {"💀 Loop Kill",  "repeatkill me true", Color3.fromRGB(140,20,20)},
         {"💥 EXPLODE!",  "explode",    Color3.fromRGB(200,70,0)},
         {"⚡ Speed x5",  "speed 80",   Color3.fromRGB(40,80,140)},
         {"🛡 God ON",    "god",         CONFIG.GreenColor},
