@@ -14,7 +14,7 @@
     
     IronHeadPanel v2.0 - Advanced Admin Script
     Öffnen: RECHTE SHIFT-Taste
-    Entwickelt für Roblox LocalScript (StarterPlayerScripts)
+    Cheat Easy
 --]]
 
 -- ╔══════════════════════════════════════╗
@@ -39,7 +39,7 @@ local Camera = Workspace.CurrentCamera
 -- ╚══════════════════════════════════════╝
 
 local CONFIG = {
-    PanelName    = "IronHeadPanel",
+    PanelName    = "IronHeadPanel - Easy To Cheat",
     Version      = "2.0",
     OpenKey      = Enum.KeyCode.RightShift,
     Prefix       = "/",           -- Command-Präfix (z.B. /kill)
